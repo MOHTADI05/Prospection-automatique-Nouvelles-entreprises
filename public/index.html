@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prospection Automatique — Nouvelles entreprises</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: #f1f5f9; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+    .fade-in { animation: fadeIn .25s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+    .skeleton { background: linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%);
+                background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+  </style>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 h-screen flex flex-col overflow-hidden"
+  x-data="app()" x-init="init()">
+
+  <!-- ── HEADER ── -->
+  <header class="bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 text-white shadow-lg flex-shrink-0 z-10">
+    <div class="max-w-screen-2xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center text-lg font-bold">📬</div>
+        <div>
+          <h1 class="text-lg font-bold leading-tight">Prospection Automatique</h1>
+          <p class="text-blue-200 text-xs">Nouvelles entreprises · INSEE × API Gouv</p>
+        </div>
+      </div>
+
+      <!-- Stats pills -->
+      <div class="hidden md:flex items-center gap-3 text-xs">
+        <template x-if="stats.disponible">
+          <div class="flex items-center gap-3">
+            <div class="bg-white/15 rounded-full px-3 py-1 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span x-text="stats.envoyes + ' envois réussis'"></span>
+            </div>
+            <div class="bg-white/15 rounded-full px-3 py-1" x-show="stats.dernier_envoi">
+              Dernier : <span x-text="stats.dernier_envoi?.substring(0,10)"></span>
+            </div>
+          </div>
+        </template>
+        <!-- API status -->
+        <div class="flex items-center gap-1.5 bg-white/15 rounded-full px-3 py-1">
+          <span :class="apiOk ? 'bg-emerald-400' : 'bg-red-400'" class="w-2 h-2 rounded-full"></span>
+          <span x-text="apiOk ? 'API connectée' : 'API hors ligne'"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── BODY ── -->
+  <div class="flex flex-1 overflow-hidden max-w-screen-2xl mx-auto w-full">
+
+    <!-- ══ SIDEBAR ══ -->
+    <aside class="w-80 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col overflow-hidden shadow-sm">
+
+      <!-- Sidebar header -->
+      <div class="px-5 py-4 border-b border-slate-100">
+        <h2 class="font-semibold text-slate-700 flex items-center gap-2">
+          <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/>
+          </svg>
+          Filtres de recherche
+        </h2>
+      </div>
+
+      <!-- Scrollable filter area -->
+      <div class="flex-1 overflow-y-auto scrollbar-thin px-5 py-4 space-y-6">
+
+        <!-- ─ 1. DÉPARTEMENTS ─ -->
+        <section>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Départements</label>
+            <div class="flex gap-1">
+              <button @click="selectIleDeFrance()" class="text-xs text-blue-600 hover:underline">Île-de-France</button>
+              <span class="text-slate-300">·</span>
+              <button @click="filters.departements=[]" class="text-xs text-slate-400 hover:underline">Vider</button>
+            </div>
+          </div>
+
+          <!-- Search departments -->
+          <input type="text" x-model="depSearch" placeholder="Rechercher un département…"
+            class="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+
+          <!-- Selected chips -->
+          <div class="flex flex-wrap gap-1 mb-2" x-show="filters.departements.length > 0">
+            <template x-for="dep in filters.departements" :key="dep">
+              <span class="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs rounded-full px-2 py-0.5">
+                <span x-text="dep"></span>
+                <button @click="toggleDep(dep)" class="hover:text-blue-900 font-bold">×</button>
+              </span>
+            </template>
+          </div>
+
+          <!-- Department list -->
+          <div class="max-h-36 overflow-y-auto scrollbar-thin border border-slate-200 rounded-lg divide-y divide-slate-100">
+            <template x-for="dep in filteredDeps" :key="dep.code">
+              <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" :value="dep.code"
+                  :checked="filters.departements.includes(dep.code)"
+                  @change="toggleDep(dep.code)"
+                  class="rounded text-blue-600 focus:ring-blue-400 w-3.5 h-3.5" />
+                <span class="text-xs text-slate-600">
+                  <span class="font-mono text-slate-400 w-8 inline-block" x-text="dep.code"></span>
+                  <span x-text="dep.label"></span>
+                </span>
+              </label>
+            </template>
+          </div>
+          <p x-show="filters.departements.length === 0" class="text-xs text-amber-600 mt-1">
+            ⚠ Sélectionnez au moins un département
+          </p>
+        </section>
+
+        <!-- ─ 2. PÉRIODE ─ -->
+        <section>
+          <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-3">Période de création</label>
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs text-slate-500">Derniers</span>
+            <span class="text-sm font-bold text-blue-600" x-text="filters.jours + ' jours'"></span>
+          </div>
+          <input type="range" x-model.number="filters.jours" min="0" max="90"
+            class="w-full h-2 rounded-full accent-blue-600 cursor-pointer" />
+          <div class="flex justify-between text-xs text-slate-400 mt-1">
+            <span>Tous</span><span>30j</span><span>90 jours</span>
+          </div>
+          <p class="text-xs text-slate-500 mt-2 bg-slate-50 rounded-lg px-3 py-2">
+            <template x-if="filters.jours > 0">
+              <span>📅 Depuis le <span class="font-medium text-slate-700" x-text="dateDebut"></span></span>
+            </template>
+            <template x-if="filters.jours === 0">
+              <span>📅 <span class="font-medium text-slate-700">Toutes dates confondues</span></span>
+            </template>
+          </p>
+        </section>
+
+        <!-- ─ 3. SECTEUR D'ACTIVITÉ ─ -->
+        <section>
+          <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-2">Secteur d'activité (NAF)</label>
+          <select x-model="filters.section_naf"
+            class="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white mb-2">
+            <option value="">Tous les secteurs</option>
+            <template x-for="s in sections" :key="s.code">
+              <option :value="s.code" x-text="s.code + ' — ' + s.label"></option>
+            </template>
+          </select>
+          <input type="text" x-model="filters.code_naf" placeholder="Code NAF précis (ex: 6201Z)"
+            class="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          <p class="text-xs text-slate-400 mt-1">Plusieurs codes : séparés par virgule</p>
+        </section>
+
+        <!-- ─ 4. CATÉGORIE ENTREPRISE ─ -->
+        <section>
+          <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-2">Catégorie</label>
+          <div class="flex gap-2">
+            <template x-for="cat in ['PME','ETI','GE']" :key="cat">
+              <button @click="filters.categorie = (filters.categorie===cat ? '' : cat)"
+                :class="filters.categorie===cat
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400'"
+                class="flex-1 text-xs font-medium border rounded-lg py-2 transition-all" x-text="cat">
+              </button>
+            </template>
+          </div>
+        </section>
+
+        <!-- ─ 5. EFFECTIF ─ -->
+        <section>
+          <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-2">Effectif salarié</label>
+          <select x-model="filters.tranche_effectif"
+            class="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+            <option value="">Tous les effectifs</option>
+            <template x-for="t in tranches" :key="t.code">
+              <option :value="t.code" x-text="t.label"></option>
+            </template>
+          </select>
+        </section>
+
+        <!-- ─ 6. TYPE D'ENTREPRISE ─ -->
+        <section>
+          <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-2">Type d'entreprise</label>
+          <div class="space-y-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" x-model="filters.est_ei" class="rounded text-blue-600 focus:ring-blue-400 w-3.5 h-3.5" />
+              <span class="text-xs text-slate-600">Entrepreneurs individuels (EI)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" x-model="filters.est_ess" class="rounded text-blue-600 focus:ring-blue-400 w-3.5 h-3.5" />
+              <span class="text-xs text-slate-600">Économie sociale et solidaire (ESS)</span>
+            </label>
+          </div>
+        </section>
+
+        <!-- ─ 7. RÉSULTATS PAR PAGE ─ -->
+        <section>
+          <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-2">Résultats par page</label>
+          <div class="flex items-center gap-3">
+            <input type="number" x-model.number="filters.per_page" min="1" max="25"
+              class="w-20 text-sm border border-slate-200 rounded-lg px-3 py-2 text-center focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            <span class="text-xs text-slate-400">max 25 / page (API Gouv)</span>
+          </div>
+        </section>
+
+      </div><!-- end scrollable -->
+
+      <!-- Sidebar footer / action buttons -->
+      <div class="px-5 py-4 border-t border-slate-100 space-y-2 flex-shrink-0">
+        <button @click="search()" :disabled="loading || filters.departements.length===0"
+          class="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
+                 text-white text-sm font-semibold rounded-xl py-3 shadow-sm transition-all">
+          <template x-if="!loading">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
+              </svg>
+              Rechercher
+            </span>
+          </template>
+          <template x-if="loading">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+              Recherche en cours…
+            </span>
+          </template>
+        </button>
+        <button @click="reset()"
+          class="w-full text-slate-500 hover:text-slate-700 text-xs py-2 rounded-xl hover:bg-slate-100 transition-all">
+          Réinitialiser les filtres
+        </button>
+      </div>
+    </aside>
+
+    <!-- ══ MAIN CONTENT ══ -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Results toolbar -->
+      <div class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between gap-4 flex-shrink-0">
+        <div class="flex items-center gap-3">
+          <template x-if="results !== null && !loading">
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-slate-600">
+                <span class="font-bold text-slate-800" x-text="results.length"></span>
+                entreprise<span x-show="results.length !== 1">s</span> trouvée<span x-show="results.length !== 1">s</span>
+                <span class="text-slate-400 ml-1">(créées depuis le <span x-text="searchMeta.date_debut"></span>)</span>
+              </span>
+              <!-- Error badges -->
+              <template x-if="searchMeta.errors && searchMeta.errors.length > 0">
+                <span class="text-xs text-amber-700 bg-amber-100 rounded-full px-2 py-0.5"
+                  :title="searchMeta.errors.join('\n')"
+                  x-text="searchMeta.errors.length + ' avertissement(s)'"></span>
+              </template>
+            </div>
+          </template>
+          <template x-if="results === null && !loading">
+            <span class="text-sm text-slate-400">Configurez vos filtres et lancez une recherche</span>
+          </template>
+        </div>
+
+        <!-- Pagination + export -->
+        <div class="flex items-center gap-2">
+          <template x-if="results !== null && results.length > 0">
+            <div class="flex items-center gap-2">
+              <!-- Page nav -->
+              <div class="flex items-center gap-1 text-xs text-slate-500 border border-slate-200 rounded-lg overflow-hidden">
+                <button @click="prevPage()" :disabled="filters.page===1"
+                  class="px-2 py-1.5 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">‹</button>
+                <span class="px-2 border-x border-slate-200">Page <span x-text="filters.page"></span></span>
+                <button @click="nextPage()"
+                  :disabled="results.length < filters.per_page"
+                  class="px-2 py-1.5 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">›</button>
+              </div>
+              <!-- Copy CSV -->
+              <button @click="copyCSV()"
+                class="flex items-center gap-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+                Copier CSV
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── Results area ── -->
+      <div class="flex-1 overflow-y-auto scrollbar-thin p-6">
+
+        <!-- Loading skeleton -->
+        <template x-if="loading">
+          <div class="space-y-2">
+            <template x-for="i in 8" :key="i">
+              <div class="skeleton h-16 rounded-xl"></div>
+            </template>
+          </div>
+        </template>
+
+        <!-- Empty state: no search yet -->
+        <template x-if="!loading && results === null">
+          <div class="flex flex-col items-center justify-center h-full text-center py-16 fade-in">
+            <div class="text-6xl mb-4">🏢</div>
+            <h3 class="text-lg font-semibold text-slate-700 mb-2">Trouvez vos prochains clients</h3>
+            <p class="text-slate-400 text-sm max-w-sm">
+              Sélectionnez vos critères dans le panneau de gauche puis cliquez sur
+              <strong class="text-blue-600">Rechercher</strong> pour afficher les entreprises
+              nouvellement créées.
+            </p>
+            <div class="mt-6 grid grid-cols-3 gap-4 text-xs text-slate-400">
+              <div class="bg-white rounded-xl p-3 border border-slate-200">
+                <div class="text-2xl mb-1">📍</div>
+                <div>Filtrez par département</div>
+              </div>
+              <div class="bg-white rounded-xl p-3 border border-slate-200">
+                <div class="text-2xl mb-1">📅</div>
+                <div>Choisissez la période</div>
+              </div>
+              <div class="bg-white rounded-xl p-3 border border-slate-200">
+                <div class="text-2xl mb-1">🏭</div>
+                <div>Filtrez par secteur NAF</div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Empty state: no results -->
+        <template x-if="!loading && results !== null && results.length === 0">
+          <div class="flex flex-col items-center justify-center h-full text-center py-16 fade-in">
+            <div class="text-5xl mb-4">🔍</div>
+            <h3 class="text-lg font-semibold text-slate-700 mb-2">Aucune entreprise trouvée</h3>
+            <p class="text-slate-400 text-sm">
+              Aucune entreprise ne correspond à vos critères sur cette période.<br />
+              Essayez d'élargir la fenêtre de dates ou de changer de département.
+            </p>
+          </div>
+        </template>
+
+        <!-- Results table -->
+        <template x-if="!loading && results !== null && results.length > 0">
+          <div class="fade-in">
+            <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wide">
+                    <th class="text-left px-4 py-3 font-semibold">Société</th>
+                    <th class="text-left px-4 py-3 font-semibold">SIRET</th>
+                    <th class="text-left px-4 py-3 font-semibold hidden lg:table-cell">Adresse</th>
+                    <th class="text-left px-4 py-3 font-semibold">Créée le</th>
+                    <th class="text-left px-4 py-3 font-semibold hidden xl:table-cell">NAF</th>
+                    <th class="text-left px-4 py-3 font-semibold hidden xl:table-cell">Dept</th>
+                    <th class="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  <template x-for="(e, idx) in results" :key="e.siret">
+                    <tr class="hover:bg-blue-50/40 transition-colors group">
+                      <!-- Société -->
+                      <td class="px-4 py-3">
+                        <div class="flex items-center gap-2">
+                          <div class="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                            :style="`background: hsl(${(idx * 47) % 360}, 55%, 52%)`"
+                            x-text="e.nom.charAt(0)">
+                          </div>
+                          <div>
+                            <p class="font-semibold text-slate-800 leading-tight" x-text="e.nom"></p>
+                            <div class="flex items-center gap-1 mt-0.5">
+                              <span x-show="e.est_ei" class="text-xs bg-violet-100 text-violet-700 rounded-full px-1.5 py-px">EI</span>
+                              <span x-show="e.est_ess" class="text-xs bg-green-100 text-green-700 rounded-full px-1.5 py-px">ESS</span>
+                              <span x-show="e.categorie" class="text-xs bg-blue-100 text-blue-700 rounded-full px-1.5 py-px" x-text="e.categorie"></span>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <!-- SIRET -->
+                      <td class="px-4 py-3">
+                        <code class="text-xs font-mono text-slate-600 bg-slate-100 px-2 py-1 rounded" x-text="e.siret"></code>
+                      </td>
+                      <!-- Adresse -->
+                      <td class="px-4 py-3 hidden lg:table-cell">
+                        <p class="text-xs text-slate-600 leading-snug max-w-xs" x-text="e.adresse"></p>
+                      </td>
+                      <!-- Date -->
+                      <td class="px-4 py-3">
+                        <span class="inline-flex items-center text-xs bg-emerald-100 text-emerald-700 rounded-full px-2 py-1 font-medium"
+                          x-text="e.date_creation || '—'"></span>
+                      </td>
+                      <!-- NAF -->
+                      <td class="px-4 py-3 hidden xl:table-cell">
+                        <span class="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded" x-text="e.code_naf || '—'"></span>
+                      </td>
+                      <!-- Dept -->
+                      <td class="px-4 py-3 hidden xl:table-cell">
+                        <span class="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded" x-text="e.departement || '—'"></span>
+                      </td>
+                      <!-- Actions -->
+                      <td class="px-4 py-3">
+                        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button @click="copyAdresse(e)"
+                            title="Copier l'adresse postale"
+                            class="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            </svg>
+                          </button>
+                          <a :href="`https://annuaire-entreprises.data.gouv.fr/entreprise/${e.siren}`" target="_blank"
+                            title="Voir sur l'Annuaire des entreprises"
+                            class="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Bottom page info -->
+            <p class="text-center text-xs text-slate-400 mt-3">
+              <span x-text="results.length"></span> résultat(s) · Page <span x-text="filters.page"></span>
+              · <span class="font-medium text-slate-500" x-text="filters.departements.join(', ')"></span>
+            </p>
+          </div>
+        </template>
+
+      </div><!-- end results area -->
+    </main>
+  </div><!-- end body -->
+
+  <!-- ── TOAST ── -->
+  <div x-show="toast" x-cloak
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-sm rounded-xl px-5 py-3 shadow-xl z-50"
+    x-text="toast">
+  </div>
+
+<script>
+function app() {
+  return {
+    // ── State ──
+    loading: false,
+    results: null,
+    searchMeta: {},
+    apiOk: false,
+    stats: { disponible: false },
+    sections: [],
+    tranches: [],
+    allDeps: [],
+    depSearch: '',
+    toast: '',
+    _toastTimer: null,
+
+    // ── Filters ──
+    filters: {
+      departements:     ['75','92','93','94'],
+      jours:            7,
+      section_naf:      '',
+      code_naf:         '',
+      categorie:        '',
+      tranche_effectif: '',
+      est_ei:           false,
+      est_ess:          false,
+      per_page:         25,
+      page:             1,
+    },
+
+    // ── Computed ──
+    get dateDebut() {
+      const d = new Date();
+      d.setDate(d.getDate() - this.filters.jours);
+      return d.toISOString().substring(0, 10);
+    },
+
+    get filteredDeps() {
+      const q = this.depSearch.toLowerCase();
+      if (!q) return this.allDeps;
+      return this.allDeps.filter(d =>
+        d.code.toLowerCase().includes(q) || d.label.toLowerCase().includes(q)
+      );
+    },
+
+    // ── Init ──
+    async init() {
+      const [health, deps, sections, tranches] = await Promise.all([
+        fetch('/api/health').then(r => r.json()).catch(() => ({})),
+        fetch('/api/departements').then(r => r.json()).catch(() => []),
+        fetch('/api/sections_naf').then(r => r.json()).catch(() => []),
+        fetch('/api/tranches_effectif').then(r => r.json()).catch(() => []),
+      ]);
+      this.apiOk    = health.api_insee === true;
+      this.allDeps  = deps;
+      this.sections = sections;
+      this.tranches = tranches;
+
+      // Load stats
+      fetch('/api/stats').then(r => r.json()).then(s => { this.stats = s; }).catch(() => {});
+    },
+
+    // ── Actions ──
+    toggleDep(code) {
+      const idx = this.filters.departements.indexOf(code);
+      if (idx === -1) this.filters.departements.push(code);
+      else this.filters.departements.splice(idx, 1);
+    },
+
+    selectIleDeFrance() {
+      this.filters.departements = ['75','77','78','91','92','93','94','95'];
+    },
+
+    reset() {
+      this.filters = {
+        departements: ['75','92','93','94'],
+        jours: 7, section_naf: '', code_naf: '', categorie: '',
+        tranche_effectif: '', est_ei: false, est_ess: false, per_page: 25, page: 1,
+      };
+      this.results = null;
+      this.searchMeta = {};
+    },
+
+    async search() {
+      if (this.filters.departements.length === 0) return;
+      this.loading = true;
+      this.filters.page = 1;
+      await this._doSearch();
+    },
+
+    async nextPage() {
+      this.filters.page++;
+      this.loading = true;
+      await this._doSearch();
+      window.scrollTo(0, 0);
+    },
+
+    async prevPage() {
+      if (this.filters.page > 1) {
+        this.filters.page--;
+        this.loading = true;
+        await this._doSearch();
+      }
+    },
+
+    async _doSearch() {
+      const params = new URLSearchParams({
+        departements: this.filters.departements.join(','),
+        jours:        this.filters.jours,
+        per_page:     this.filters.per_page,
+        page:         this.filters.page,
+      });
+      if (this.filters.section_naf)      params.set('section_naf', this.filters.section_naf);
+      if (this.filters.code_naf)         params.set('code_naf', this.filters.code_naf);
+      if (this.filters.categorie)        params.set('categorie', this.filters.categorie);
+      if (this.filters.tranche_effectif) params.set('tranche_effectif', this.filters.tranche_effectif);
+      if (this.filters.est_ei)  params.set('est_ei', 'true');
+      if (this.filters.est_ess) params.set('est_ess', 'true');
+
+      try {
+        const res  = await fetch(`/api/entreprises?${params}`);
+        const data = await res.json();
+        this.results    = data.entreprises || [];
+        this.searchMeta = { date_debut: data.date_debut, errors: data.errors };
+      } catch(e) {
+        this.showToast('Erreur de connexion à l\'API');
+        this.results = [];
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    copyAdresse(e) {
+      const text = `${e.nom}\n${e.adresse_ligne1}\n${e.adresse_ligne6}`;
+      navigator.clipboard.writeText(text);
+      this.showToast('Adresse copiée dans le presse-papier ✓');
+    },
+
+    copyCSV() {
+      if (!this.results?.length) return;
+      const headers = ['Société','SIRET','Adresse','Date création','NAF','Département','Catégorie'];
+      const rows = this.results.map(e => [
+        `"${e.nom}"`, e.siret, `"${e.adresse}"`,
+        e.date_creation, e.code_naf, e.departement, e.categorie
+      ].join(';'));
+      navigator.clipboard.writeText([headers.join(';'), ...rows].join('\n'));
+      this.showToast(`CSV copié (${this.results.length} lignes) ✓`);
+    },
+
+    showToast(msg) {
+      this.toast = msg;
+      clearTimeout(this._toastTimer);
+      this._toastTimer = setTimeout(() => { this.toast = ''; }, 3000);
+    },
+  };
+}
+</script>
+</body>
+</html>

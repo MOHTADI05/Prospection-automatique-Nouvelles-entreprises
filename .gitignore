@@ -1,0 +1,38 @@
+# Environment variables — NEVER commit tokens
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Database (generated at runtime)
+prospection/prospection.db
+*.db
+
+# Logs (generated at runtime)
+prospection/prospection.log
+*.log
+
+# PDF brochure (sensitive business asset)
+prospection/brochure.pdf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
