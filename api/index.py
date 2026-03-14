@@ -10,7 +10,6 @@ Endpoints:
 """
 
 import os
-import sys
 import time
 from datetime import date, timedelta
 from typing import Optional
@@ -20,15 +19,9 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-# ── Path setup: make prospection/ importable ────────────────────────────────
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_PROSPECTION = os.path.join(_ROOT, "prospection")
+# ── Paths (no imports from prospection/ — keep Lambda self-contained) ────────
+_ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _PUBLIC = os.path.join(_ROOT, "public")
-for _p in (_ROOT, _PROSPECTION):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from config import CONFIG  # noqa: E402
 
 # ── App ─────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -343,9 +336,10 @@ def get_stats():
     """Retourne les statistiques de la base de données locale (si disponible)."""
     try:
         import sqlite3
-        db_path = CONFIG.get("db_path", "")
-        if not db_path or not os.path.exists(db_path):
-            return {"disponible": False, "message": "Base de données non initialisée"}
+        # DB_PATH env var for cloud; fall back to the local default path
+        db_path = os.getenv("DB_PATH", os.path.join(_ROOT, "prospection", "prospection.db"))
+        if not os.path.exists(db_path):
+            return {"disponible": False, "message": "Base de données non initialisée (run main.py au moins une fois en local)"}
 
         conn = sqlite3.connect(db_path)
         total   = conn.execute("SELECT COUNT(*) FROM envois").fetchone()[0]
@@ -357,10 +351,10 @@ def get_stats():
         conn.close()
 
         return {
-            "disponible": True,
-            "total":      total,
-            "envoyes":    envoyes,
-            "erreurs":    erreurs,
+            "disponible":    True,
+            "total":         total,
+            "envoyes":       envoyes,
+            "erreurs":       erreurs,
             "dernier_envoi": dernier[0] if dernier else None,
         }
     except Exception as exc:
