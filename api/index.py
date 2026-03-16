@@ -17,11 +17,27 @@ from typing import Optional
 import requests
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
-# ── Paths (no imports from prospection/ — keep Lambda self-contained) ────────
-_ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# ── Paths ────────────────────────────────────────────────────────────────────
+_HERE   = os.path.dirname(os.path.abspath(__file__))   # api/
+_ROOT   = os.path.dirname(_HERE)                        # project root
 _PUBLIC = os.path.join(_ROOT, "public")
+
+# Pre-load HTML at startup so FileSystem issues surface immediately at build time
+_HTML_CONTENT: str = ""
+_html_path = os.path.join(_PUBLIC, "index.html")
+if os.path.exists(_html_path):
+    with open(_html_path, encoding="utf-8") as _f:
+        _HTML_CONTENT = _f.read()
+else:
+    _HTML_CONTENT = (
+        "<!DOCTYPE html><html><body>"
+        "<h2>Frontend not bundled.</h2>"
+        "<p>Check includeFiles in vercel.json</p>"
+        "<p>API docs: <a href='/docs'>/docs</a></p>"
+        "</body></html>"
+    )
 
 # ── App ─────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -42,20 +58,8 @@ app.add_middleware(
 
 @app.get("/", include_in_schema=False)
 def root():
-    """Serve the single-page frontend."""
-    html_path = os.path.join(_PUBLIC, "index.html")
-    if os.path.exists(html_path):
-        return FileResponse(html_path, media_type="text/html")
-    return JSONResponse({"error": "Frontend not found", "path": html_path}, status_code=404)
-
-
-# ── Mangum handler for Vercel / AWS Lambda ────────────────────────────────────
-# Mangum wraps the ASGI app so Vercel's serverless runtime can invoke it.
-try:
-    from mangum import Mangum
-    handler = Mangum(app, lifespan="off")
-except ImportError:
-    handler = None  # local dev without mangum is fine (uvicorn handles it)
+    """Serve the single-page frontend (HTML pre-loaded at startup)."""
+    return HTMLResponse(_HTML_CONTENT)
 
 _API_BASE = "https://recherche-entreprises.api.gouv.fr"
 _USER_AGENT = "Prospection-Automatique/1.0"

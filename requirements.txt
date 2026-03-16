@@ -1,5 +1,6 @@
+# Vercel production dependencies
 fastapi>=0.111.0
-uvicorn[standard]>=0.29.0
-mangum>=0.17.0
 requests>=2.31.0
-python-dotenv>=1.0.0
+
+# Local development only (not used by Vercel runtime)
+# uvicorn>=0.29.0
